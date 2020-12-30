@@ -1,4 +1,3 @@
-
 import h5py
 # %matplotlib inline
 # %matplotlib notebook
@@ -44,15 +43,21 @@ def main():
     npart = int(1e7) # Total number of particles in the simulation
     rqm = -1.0 # Mass to charge ratio of particles
     dt_cour = 0.9 # fraction of a courant limit to make dt
-    rcap = 40.0 # distance to cap propagation
+    rcap = 27.0 # distance to cap propagation
     if_move = True
     n_threads = 12
     x_final = 50 # final distance to propagate (cm)
     n_frames = 101 # number of frames in the movie
 
-    if_prop = True
-    if_plot = True
-    if_par  = True
+    if_prop = True # Propagate the electrons
+    if_plot = True # Make the plots
+    if_par  = True # Parallelize
+    if_movie = True # Make movie
+    if_ion = True # Include ion density
+
+    abs_unit = True # False # To plot in mm or not
+    rpmax = 3 # None # ylim of radiograph plot
+    rpmax_den = 0.17 # ylim of density plot
 
     if if_prop:
 
@@ -196,6 +201,13 @@ def main():
         fields[int(size_x/2):,:] = dat_fld.values[1:,:]
         fields[:int(size_x/2),:] = np.flip( dat_fld.values[1:,:], axis=0 )
 
+        if if_ion:
+            dat_ion = osh5io.read_h5(glob.glob(fldr+'/charge*ions*0-re*')[0])
+            size_x = 2*(dat_ion.shape[0]-1)
+            charge_ion = np.zeros((size_x,dat_ion.shape[1]))
+            charge_ion[int(size_x/2):,:] = dat_ion.values[1:,:]
+            charge_ion[:int(size_x/2),:] = np.flip( dat_ion.values[1:,:], axis=0 )
+
         zmin = dat_ele.axes[1].min
         zmax = dat_ele.axes[1].max
         # Load in saved data
@@ -207,40 +219,76 @@ def main():
 
         gc.collect()
         for i in np.arange(n_frames):
-            plt.figure(figsize=(7,7))
-            plt.subplot(211)
-            sigma_x = proton_pulse( c_wp, data, rmax, zmin, T0, dist=dists[i], perc=0.95, n_z=1200, n_r=450 )
+            if if_ion:
+                plt.figure(figsize=(7,11))
+                plt.subplot(311)
+            else:
+                plt.figure(figsize=(7,7))
+                plt.subplot(211)
+            sigma_x = proton_pulse( c_wp, data, rmax, zmin, T0, dat_ele.run_attrs['TIME'][0], dist=dists[i], perc=0.95, n_z=1200, n_r=1200, abs_unit=abs_unit, rpmax=rpmax )
             xlm = plt.xlim()
             ylm = plt.ylim()
-            plt.subplot(212)
+            if if_ion:
+                plt.subplot(312)
+            else:
+                plt.subplot(212)
             mag = np.sqrt( (1+np.square((d_focus+dists[i]*0.01)/beta_star)) / (1+np.square(d_focus/beta_star)) )
             print(mag)
-            plt.imshow(np.abs(charge_e),extent=[0.5*((1-mag[0])*zmax+(1+mag[0])*zmin),0.5*((1+mag[0])*zmax+(1-mag[0])*zmin),-rmax*mag[1],rmax*mag[1]],
+            ext=np.array([0.5*((1-mag[0])*zmax+(1+mag[0])*zmin),0.5*((1+mag[0])*zmax+(1-mag[0])*zmin),-rmax*mag[1],rmax*mag[1]])
+            if abs_unit:
+                ext = ext * c_wp * 1e3
+            plt.imshow(np.abs(charge_e),extent=ext,
                        vmax=1.2,cmap='CMRmap_r',aspect='auto')
-            plt.xlabel('$z$ $[c/\omega_p]$')
-            plt.ylabel('$x$ $[c/\omega_p]$')
+            if abs_unit:
+                plt.xlabel('$z$ [mm]')
+                plt.ylabel('$x$ [mm]')
+            else:
+                plt.xlabel('$z$ [$c/\omega_p$]')
+                plt.ylabel('$x$ [$c/\omega_p$]')
             plt.xlim(xlm)
-            plt.ylim(ylm)
+            if rpmax_den == None:
+                plt.ylim(ylm)
+            else:
+                plt.ylim([-rpmax_den,rpmax_den])
             cb=plt.colorbar(pad=0.09)
-            cb.set_label('charge $[n_0]$')
+            cb.set_label('electron charge $[n_0]$')
+
+            if if_ion:
+                plt.subplot(313)
+                plt.imshow(np.abs(charge_ion),extent=ext,
+                           vmax=1.2,cmap='CMRmap_r',aspect='auto')
+                if abs_unit:
+                    plt.xlabel('$z$ [mm]')
+                    plt.ylabel('$x$ [mm]')
+                else:
+                    plt.xlabel('$z$ [$c/\omega_p$]')
+                    plt.ylabel('$x$ [$c/\omega_p$]')
+                plt.xlim(xlm)
+                if rpmax_den == None:
+                    plt.ylim(ylm)
+                else:
+                    plt.ylim([-rpmax_den,rpmax_den])
+                cb=plt.colorbar(pad=0.09)
+                cb.set_label('ion charge $[n_0]$')
             plt.tight_layout()
             plt.savefig('{}/{}/{}_{:03d}.png'.format(fldr,title,title,i+1),dpi=300)
             plt.close()
 
         gc.collect()
-        x, y = 300 * 7, 300 * 7
-        if (x * y > 4000 * 2000):
-            x, y = x / 2, y / 2
+        if if_movie:
+            x, y = 300 * 7, 300 * 7
+            if (x * y > 4000 * 2000):
+                x, y = x / 2, y / 2
 
-        stdout = subprocess.check_output(['ffmpeg', '-encoders', '-v', 'quiet'])
-        for encoder in [b'libx264', b'mpeg4', b'mpeg']:
-            if encoder in stdout:
-                break
-        else:
-            print('unsupported')
-        subprocess.call(
-            ["ffmpeg", "-framerate", "10", "-pattern_type", "glob", "-i", '{}/{}/*.png'.format(fldr,title), '-vcodec', encoder, '-vf',
-             'scale=' + str(x) + ':' + str(y) + ',format=yuv420p', '-y', '{}/{}/{}.mp4'.format(fldr,title,title)])
+            stdout = subprocess.check_output(['ffmpeg', '-encoders', '-v', 'quiet'])
+            for encoder in [b'libx264', b'mpeg4', b'mpeg']:
+                if encoder in stdout:
+                    break
+            else:
+                print('unsupported')
+            subprocess.call(
+                ["ffmpeg", "-framerate", "10", "-pattern_type", "glob", "-i", '{}/{}/*.png'.format(fldr,title), '-vcodec', encoder, '-vf',
+                 'scale=' + str(x) + ':' + str(y) + ',format=yuv420p', '-y', '{}/{}/{}.mp4'.format(fldr,title,title)])
 
 
 def save_c_wp(fldr,c_wp):
@@ -483,28 +531,52 @@ def prep_fields( fldr, flds, mode_sub ):
     mag_b[:int(size_x/2),:] = np.flip( mag_b_half[1:,:], axis=0 )
     return dz, zmin, zmax, dr, rmax, fields, mag_e, mag_b
 
-def plot_proton( c_wp, T_init, dist, x_all, i_trans, perc, n_z, n_r ):
-    hist, edges = np.histogram(np.abs(x_all[:,i_trans]),bins=1500,normed=True)
-    w_ind_r = np.argmax(np.cumsum(hist)*(edges[1]-edges[0])>perc)
-    wind_r = edges[w_ind_r+1]
+def plot_proton( c_wp, T_init, t_sim, dist, x_all, i_trans, perc, n_z, n_r, abs_unit, rpmax ):
+    if abs_unit:
+        x_all[:,i_trans] = x_all[:,i_trans] * c_wp * 1e3
+        x_all[:,0] = x_all[:,0] * c_wp * 1e3
 
-    hist, edges = np.histogram(x_all[:,0],bins=1500,normed=True)
-    w_ind_u = np.argmax(np.cumsum(hist)*(edges[1]-edges[0])>perc)
-    wind_u = edges[w_ind_u+1]
-    w_ind_l = np.argmax(np.cumsum(np.flip(hist,axis=0))*(edges[1]-edges[0])>perc)
-    wind_l = np.flip(edges,axis=0)[w_ind_l+1]
+    if rpmax is None:
+
+        hist, edges = np.histogram(np.abs(x_all[:,i_trans]),bins=1500,normed=True)
+        w_ind_r = np.argmax(np.cumsum(hist)*(edges[1]-edges[0])>perc)
+        wind_r = edges[w_ind_r+1]
+
+        hist, edges = np.histogram(x_all[:,0],bins=1500,normed=True)
+        w_ind_u = np.argmax(np.cumsum(hist)*(edges[1]-edges[0])>perc)
+        wind_u = edges[w_ind_u+1]
+        w_ind_l = np.argmax(np.cumsum(np.flip(hist,axis=0))*(edges[1]-edges[0])>perc)
+        wind_l = np.flip(edges,axis=0)[w_ind_l+1]
+
+    else:
+
+        wind_r = rpmax
+
+        hist, edges = np.histogram(x_all[:,0],bins=1500,normed=True)
+        w_ind_u = np.argmax(np.cumsum(hist)*(edges[1]-edges[0])>perc)
+        wind_u = edges[w_ind_u+1]
+        w_ind_l = np.argmax(np.cumsum(np.flip(hist,axis=0))*(edges[1]-edges[0])>perc)
+        wind_l = np.flip(edges,axis=0)[w_ind_l+1]
+        mean = (wind_l+wind_u)/2.0
+
+        wind_l = -rpmax + mean
+        wind_u = rpmax + mean
 
     vals = plt.hist2d(x_all[:,0],x_all[:,i_trans],bins=[np.linspace(wind_l,wind_u,n_z),
                                                  np.linspace(-wind_r,wind_r,n_r)],cmap='gray')
     cb=plt.colorbar(pad=0.09)
     cb.set_label('charge [a.u.]')
-    plt.xlabel('$z$ [$c/\omega_p$]')
-    plt.ylabel('$x$ [$c/\omega_p$]')
-    plt.title('Radiograph at {:4.1f} cm, $T={}$ MeV, $\sigma_x=${:.3f} [mm], $\sigma_z=${:.3f} [mm]'.format(dist,T_init,
+    if abs_unit:
+        plt.xlabel('$z$ [mm]')
+        plt.ylabel('$x$ [mm]')
+    else:
+        plt.xlabel('$z$ [$c/\omega_p$]')
+        plt.ylabel('$x$ [$c/\omega_p$]')
+    plt.title('Radiograph at {:4.1f} cm, $t=${:.2f} ps, $\sigma_x=${:.3f} mm, $\sigma_z=${:.3f} mm'.format(dist,t_sim*c_wp/3e8*1e12,
                                                                                          np.std(x_all[:,i_trans])*c_wp*1e3,np.std(x_all[:,0])*c_wp*1e3))
     return np.std(x_all[:,0])
 
-def proton_pulse( c_wp, data, rmax, zmin, T_init, dist=2, perc=0.95, n_z=400, n_r=220 ):
+def proton_pulse( c_wp, data, rmax, zmin, T_init, t_sim, dist=2, perc=0.95, n_z=400, n_r=220, abs_unit=False, rpmax=None ):
 
     # Get correct data
     x=data['x']; p=data['p']
@@ -520,7 +592,7 @@ def proton_pulse( c_wp, data, rmax, zmin, T_init, dist=2, perc=0.95, n_z=400, n_
     # Add the zmin offset to align with the simulation data
     xfinal[:,0] = xfinal[:,0] + zmin
 
-    return plot_proton( c_wp, T_init, dist, xfinal, i_trans, perc, n_z, n_r )
+    return plot_proton( c_wp, T_init, t_sim, dist, xfinal, i_trans, perc, n_z, n_r, abs_unit, rpmax )
 
 if __name__ == "__main__":
     main()
