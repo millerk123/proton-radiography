@@ -78,8 +78,8 @@ def main():
 
         # Or specify the emittance, spot size at the screen, and desired magnification (z,x)
         em = np.array([2.89e-6,2.62e-6])/gamma # Numbers are the normalized emittance [m]
-        sigma_s = np.array([4e-3,4e-4]) # Spot size at the screen [m]
-        M = np.array([3.0,3.0]) # Desired magnification
+        sigma_s = np.array([3.582e-3,0.738e-3]) # Spot size at the screen [m]
+        M = np.array([1.58,1.65]) # Desired magnification
         m2=np.square(M); m4=np.power(M,4); s2=np.square(sigma_s); s4=np.power(sigma_s,4); e2=np.square(em)
         d_focus = (-m4*e2-2*s4+2*m2*s4-M*s2*np.sqrt(4*s4-m2*e2)+np.power(M,3)*s2*np.sqrt(4*s4-m2*e2))/(4*m4*e2+4*np.square(m2-1)*s4)
         sigma_x0 = M*em/(2*np.sqrt((m2+1)*s2-M*np.sqrt(4*s4-m2*e2)))
@@ -424,6 +424,197 @@ def interp_nearest( x, fields, e, b, n, ximax, rmax, dz, dr, m0=1, m1=1 ):
                 fields[2+idx,2,i_r_er_bzp,i_z_ez_brp] * m1 * xy_r2 + \
                 fields[1+idx,2,i_r_ezp_br,i_z_ez_brp] * m1 * y2_r2
 
+# Use linear interpolation to get field
+def interp_linear( x, fields, e, b, n, ximax, rmax, dz, dr, m0=1, m1=1 ):
+
+    e[:] = 0.0
+    b[:] = 0.0
+
+    inds = np.logical_and( x[:,3] < rmax-dr/2, np.logical_and( x[:,4]<ximax-dz, x[:,4]>0.0 ) )
+
+    ########################################################
+    # Get indices and interpolation factors for i and j
+    ip_f = x[inds,4]/dz # i for primal grids as float
+    ip_l = np.floor(ip_f).astype(int) # lower cell for i primal
+    ip_u = np.ceil(ip_f).astype(int) # upper cell for i primal
+    s_ip_u = ip_f - ip_l # linear interpolation factor for upper cell of i primal
+    s_ip_l = 1 - s_ip_u # linear interpolation factor for lower cell of i primal
+    
+    id_f = x[inds,4]/dz - 0.5 # i for dual grids as float
+    id_l = np.floor(id_f).astype(int) # lower cell for i dual
+    id_u = np.ceil(id_f).astype(int) # upper cell for i dual
+    s_id_u = id_f - id_l # linear interpolation factor for upper cell of i dual
+    s_id_l = 1 - s_id_u # linear interpolation factor for lower cell of i dual
+    
+    jp_f = x[inds,3]/dr + 0.5 # j for primal grids as float
+    jp_l = np.floor(jp_f).astype(int) # lower cell for j primal
+    jp_u = np.ceil(jp_f).astype(int) # upper cell for j primal
+    s_jp_u = jp_f - jp_l # linear interpolation factor for upper cell of j primal
+    s_jp_l = 1 - s_jp_u # linear interpolation factor for lower cell of j primal
+    
+    jd_f = x[inds,3]/dr # j for dual grids as float
+    jd_l = np.floor(jd_f).astype(int) # lower cell for j dual
+    jd_u = np.ceil(jd_f).astype(int) # upper cell for j dual
+    s_jd_u = jd_f - jd_l # linear interpolation factor for upper cell of j dual
+    s_jd_l = 1 - s_jd_u # linear interpolation factor for lower cell of j dual
+
+    s_jp_l_id_l = s_jp_l * s_id_l
+    s_jp_u_id_l = s_jp_u * s_id_l
+    s_jp_l_id_u = s_jp_l * s_id_u
+    s_jp_u_id_u = s_jp_u * s_id_u
+    s_jd_l_ip_l = s_jd_l * s_ip_l
+    s_jp_l_ip_l = s_jp_l * s_ip_l
+    s_jd_u_ip_l = s_jd_u * s_ip_l
+    s_jp_u_ip_l = s_jp_u * s_ip_l
+    s_jd_l_ip_u = s_jd_l * s_ip_u
+    s_jp_l_ip_u = s_jp_l * s_ip_u
+    s_jd_u_ip_u = s_jd_u * s_ip_u
+    s_jp_u_ip_u = s_jp_u * s_ip_u
+    s_jd_l_id_l = s_jd_l * s_id_l
+    s_jd_u_id_l = s_jd_u * s_id_l
+    s_jd_l_id_u = s_jd_l * s_id_u
+    s_jd_u_id_u = s_jd_u * s_id_u
+
+    ########################################################
+
+    x_r = x[inds,1]/x[inds,3]
+    y_r = x[inds,2]/x[inds,3]
+    x2_r2 = np.square(x_r)
+    xy_r2 = x_r * y_r
+    y2_r2 = np.square(y_r)
+
+    # E first
+    idx = 0
+    # z component
+    e[inds,0] =  (fields[0+idx,0,jp_l,id_l] * m0 \
+                + fields[0+idx,1,jp_l,id_l] * m1 * x_r \
+                + fields[0+idx,2,jp_l,id_l] * m1 * y_r) * s_jp_l_id_l \
+                +(fields[0+idx,0,jp_u,id_l] * m0 \
+                + fields[0+idx,1,jp_u,id_l] * m1 * x_r \
+                + fields[0+idx,2,jp_u,id_l] * m1 * y_r) * s_jp_u_id_l \
+                +(fields[0+idx,0,jp_l,id_u] * m0 \
+                + fields[0+idx,1,jp_l,id_u] * m1 * x_r \
+                + fields[0+idx,2,jp_l,id_u] * m1 * y_r) * s_jp_l_id_u \
+                +(fields[0+idx,0,jp_u,id_u] * m0 \
+                + fields[0+idx,1,jp_u,id_u] * m1 * x_r \
+                + fields[0+idx,2,jp_u,id_u] * m1 * y_r) * s_jp_u_id_u
+    # x component
+    e[inds,1] =  (fields[1+idx,0,jd_l,ip_l] * m0 * x_r \
+                + fields[1+idx,1,jd_l,ip_l] * m1 * x2_r2 \
+                + fields[1+idx,2,jd_l,ip_l] * m1 * xy_r2) * s_jd_l_ip_l \
+                -(fields[2+idx,0,jp_l,ip_l] * m0 * y_r \
+                + fields[2+idx,1,jp_l,ip_l] * m1 * xy_r2 \
+                + fields[2+idx,2,jp_l,ip_l] * m1 * y2_r2) * s_jp_l_ip_l \
+                +(fields[1+idx,0,jd_u,ip_l] * m0 * x_r \
+                + fields[1+idx,1,jd_u,ip_l] * m1 * x2_r2 \
+                + fields[1+idx,2,jd_u,ip_l] * m1 * xy_r2) * s_jd_u_ip_l \
+                -(fields[2+idx,0,jp_u,ip_l] * m0 * y_r \
+                + fields[2+idx,1,jp_u,ip_l] * m1 * xy_r2 \
+                + fields[2+idx,2,jp_u,ip_l] * m1 * y2_r2) * s_jp_u_ip_l \
+                +(fields[1+idx,0,jd_l,ip_u] * m0 * x_r \
+                + fields[1+idx,1,jd_l,ip_u] * m1 * x2_r2 \
+                + fields[1+idx,2,jd_l,ip_u] * m1 * xy_r2) * s_jd_l_ip_u \
+                -(fields[2+idx,0,jp_l,ip_u] * m0 * y_r \
+                + fields[2+idx,1,jp_l,ip_u] * m1 * xy_r2 \
+                + fields[2+idx,2,jp_l,ip_u] * m1 * y2_r2) * s_jp_l_ip_u \
+                +(fields[1+idx,0,jd_u,ip_u] * m0 * x_r \
+                + fields[1+idx,1,jd_u,ip_u] * m1 * x2_r2 \
+                + fields[1+idx,2,jd_u,ip_u] * m1 * xy_r2) * s_jd_u_ip_u \
+                -(fields[2+idx,0,jp_u,ip_u] * m0 * y_r \
+                + fields[2+idx,1,jp_u,ip_u] * m1 * xy_r2 \
+                + fields[2+idx,2,jp_u,ip_u] * m1 * y2_r2) * s_jp_u_ip_u
+    # y component
+    e[inds,2] =  (fields[2+idx,0,jp_l,ip_l] * m0 * x_r \
+                + fields[2+idx,1,jp_l,ip_l] * m1 * x2_r2 \
+                + fields[2+idx,2,jp_l,ip_l] * m1 * xy_r2) * s_jp_l_ip_l \
+                +(fields[1+idx,0,jd_l,ip_l] * m0 * y_r \
+                + fields[1+idx,1,jd_l,ip_l] * m1 * xy_r2 \
+                + fields[1+idx,2,jd_l,ip_l] * m1 * y2_r2) * s_jd_l_ip_l \
+                +(fields[2+idx,0,jp_u,ip_l] * m0 * x_r \
+                + fields[2+idx,1,jp_u,ip_l] * m1 * x2_r2 \
+                + fields[2+idx,2,jp_u,ip_l] * m1 * xy_r2) * s_jp_u_ip_l \
+                +(fields[1+idx,0,jd_u,ip_l] * m0 * y_r \
+                + fields[1+idx,1,jd_u,ip_l] * m1 * xy_r2 \
+                + fields[1+idx,2,jd_u,ip_l] * m1 * y2_r2) * s_jd_u_ip_l \
+                +(fields[2+idx,0,jp_l,ip_u] * m0 * x_r \
+                + fields[2+idx,1,jp_l,ip_u] * m1 * x2_r2 \
+                + fields[2+idx,2,jp_l,ip_u] * m1 * xy_r2) * s_jp_l_ip_u \
+                +(fields[1+idx,0,jd_l,ip_u] * m0 * y_r \
+                + fields[1+idx,1,jd_l,ip_u] * m1 * xy_r2 \
+                + fields[1+idx,2,jd_l,ip_u] * m1 * y2_r2) * s_jd_l_ip_u \
+                +(fields[2+idx,0,jp_u,ip_u] * m0 * x_r \
+                + fields[2+idx,1,jp_u,ip_u] * m1 * x2_r2 \
+                + fields[2+idx,2,jp_u,ip_u] * m1 * xy_r2) * s_jp_u_ip_u \
+                +(fields[1+idx,0,jd_u,ip_u] * m0 * y_r \
+                + fields[1+idx,1,jd_u,ip_u] * m1 * xy_r2 \
+                + fields[1+idx,2,jd_u,ip_u] * m1 * y2_r2) * s_jd_u_ip_u
+                
+    # B next
+    idx = 3
+    # z component
+    b[inds,0] =  (fields[0+idx,0,jd_l,ip_l] * m0 \
+                + fields[0+idx,1,jd_l,ip_l] * m1 * x_r \
+                + fields[0+idx,2,jd_l,ip_l] * m1 * y_r) * s_jd_l_ip_l \
+                +(fields[0+idx,0,jd_u,ip_l] * m0 \
+                + fields[0+idx,1,jd_u,ip_l] * m1 * x_r \
+                + fields[0+idx,2,jd_u,ip_l] * m1 * y_r) * s_jd_u_ip_l \
+                +(fields[0+idx,0,jd_l,ip_u] * m0 \
+                + fields[0+idx,1,jd_l,ip_u] * m1 * x_r \
+                + fields[0+idx,2,jd_l,ip_u] * m1 * y_r) * s_jd_l_ip_u \
+                +(fields[0+idx,0,jd_u,ip_u] * m0 \
+                + fields[0+idx,1,jd_u,ip_u] * m1 * x_r \
+                + fields[0+idx,2,jd_u,ip_u] * m1 * y_r) * s_jd_u_ip_u
+    # x component
+    b[inds,1] =  (fields[1+idx,0,jp_l,id_l] * m0 * x_r \
+                + fields[1+idx,1,jp_l,id_l] * m1 * x2_r2 \
+                + fields[1+idx,2,jp_l,id_l] * m1 * xy_r2) * s_jp_l_id_l \
+                -(fields[2+idx,0,jd_l,id_l] * m0 * y_r \
+                + fields[2+idx,1,jd_l,id_l] * m1 * xy_r2 \
+                + fields[2+idx,2,jd_l,id_l] * m1 * y2_r2) * s_jd_l_id_l \
+                +(fields[1+idx,0,jp_u,id_l] * m0 * x_r \
+                + fields[1+idx,1,jp_u,id_l] * m1 * x2_r2 \
+                + fields[1+idx,2,jp_u,id_l] * m1 * xy_r2) * s_jp_u_id_l \
+                -(fields[2+idx,0,jd_u,id_l] * m0 * y_r \
+                + fields[2+idx,1,jd_u,id_l] * m1 * xy_r2 \
+                + fields[2+idx,2,jd_u,id_l] * m1 * y2_r2) * s_jd_u_id_l \
+                +(fields[1+idx,0,jp_l,id_u] * m0 * x_r \
+                + fields[1+idx,1,jp_l,id_u] * m1 * x2_r2 \
+                + fields[1+idx,2,jp_l,id_u] * m1 * xy_r2) * s_jp_l_id_u \
+                -(fields[2+idx,0,jd_l,id_u] * m0 * y_r \
+                + fields[2+idx,1,jd_l,id_u] * m1 * xy_r2 \
+                + fields[2+idx,2,jd_l,id_u] * m1 * y2_r2) * s_jd_l_id_u \
+                +(fields[1+idx,0,jp_u,id_u] * m0 * x_r \
+                + fields[1+idx,1,jp_u,id_u] * m1 * x2_r2 \
+                + fields[1+idx,2,jp_u,id_u] * m1 * xy_r2) * s_jp_u_id_u \
+                -(fields[2+idx,0,jd_u,id_u] * m0 * y_r \
+                + fields[2+idx,1,jd_u,id_u] * m1 * xy_r2 \
+                + fields[2+idx,2,jd_u,id_u] * m1 * y2_r2) * s_jd_u_id_u
+    # y component
+    b[inds,2] =  (fields[2+idx,0,jd_l,id_l] * m0 * x_r \
+                + fields[2+idx,1,jd_l,id_l] * m1 * x2_r2 \
+                + fields[2+idx,2,jd_l,id_l] * m1 * xy_r2) * s_jd_l_id_l \
+                +(fields[1+idx,0,jp_l,id_l] * m0 * y_r \
+                + fields[1+idx,1,jp_l,id_l] * m1 * xy_r2 \
+                + fields[1+idx,2,jp_l,id_l] * m1 * y2_r2) * s_jp_l_id_l \
+                +(fields[2+idx,0,jd_u,id_l] * m0 * x_r \
+                + fields[2+idx,1,jd_u,id_l] * m1 * x2_r2 \
+                + fields[2+idx,2,jd_u,id_l] * m1 * xy_r2) * s_jd_u_id_l \
+                +(fields[1+idx,0,jp_u,id_l] * m0 * y_r \
+                + fields[1+idx,1,jp_u,id_l] * m1 * xy_r2 \
+                + fields[1+idx,2,jp_u,id_l] * m1 * y2_r2) * s_jp_u_id_l \
+                +(fields[2+idx,0,jd_l,id_u] * m0 * x_r \
+                + fields[2+idx,1,jd_l,id_u] * m1 * x2_r2 \
+                + fields[2+idx,2,jd_l,id_u] * m1 * xy_r2) * s_jd_l_id_u \
+                +(fields[1+idx,0,jp_l,id_u] * m0 * y_r \
+                + fields[1+idx,1,jp_l,id_u] * m1 * xy_r2 \
+                + fields[1+idx,2,jp_l,id_u] * m1 * y2_r2) * s_jp_l_id_u \
+                +(fields[2+idx,0,jd_u,id_u] * m0 * x_r \
+                + fields[2+idx,1,jd_u,id_u] * m1 * x2_r2 \
+                + fields[2+idx,2,jd_u,id_u] * m1 * xy_r2) * s_jd_u_id_u \
+                +(fields[1+idx,0,jp_u,id_u] * m0 * y_r \
+                + fields[1+idx,1,jp_u,id_u] * m1 * xy_r2 \
+                + fields[1+idx,2,jp_u,id_u] * m1 * y2_r2) * s_jp_u_id_u
+
 def dudt_boris( p_in, ep, bp, dt, rqm ):
 
     tem = 0.5 * dt / rqm
@@ -482,7 +673,7 @@ def sim(x,p,fields,T0,nmin,ximax,rmax,dt,rqm,dz,dr,vd,i_prop,disp=0,perc_mod=5,m
 
     if disp==0: print("Running with T={}".format(T0))
     while n <= nmin or np.any(x[:,i_prop]>=-rmax):
-        interp_nearest( x, fields, e, b, n, ximax, rmax, dz, dr, m0=m0, m1=m1 )
+        interp_linear( x, fields, e, b, n, ximax, rmax, dz, dr, m0=m0, m1=m1 )
         dudt_boris( p, e, b, dt, rqm )
         rgamma = 1.0 / np.sqrt( 1.0 + np.sum( np.square(p), axis=1 ) )
         x[:,:3] = x[:,:3] + p * np.tile(np.expand_dims(rgamma*dt,1),3)
