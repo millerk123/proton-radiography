@@ -37,17 +37,17 @@ def main():
     # Input parameters, only sigz allowed, specify experimental parameters
     prop = 'x' # Propagation direction is x or y
     fldr = '.'
-    sigma_t0 = 100e-15 # Standard deviation in time of the beam
-    T0 = 55 # Initial temperature in MeV of the beam
-    z_scr = 0.50 # Distance to screen [m]
-    npart = int(1e7) # Total number of particles in the simulation
+    sigma_t0 = 100e-15 # Standard deviation in time of the beam [s]
+    T0 = 55 # Initial speed of the beam in the propagation direction [MeV]
+    # z_scr = 0.50 # Distance to screen [m] # no longer used
+    npart = int(1e5) # Total number of particles in the simulation
     rqm = -1.0 # Mass to charge ratio of particles
     dt_cour = 0.9 # fraction of a courant limit to make dt
-    rcap = 27.0 # distance to cap propagation
-    if_move = True
-    n_threads = 12
-    x_final = 50 # final distance to propagate (cm)
-    n_frames = 101 # number of frames in the movie
+    rcap = 2.0 # distance to cap propagation [c/omega_p]
+    if_move = True # if the fields are assumed to be moving forward at speed of light (recommend True)
+    n_threads = 16
+    x_final = 50 # final distance to propagate [cm]
+    n_frames = 11 # number of frames in the movie (usually 101 for 'production')
 
     if_prop = True # Propagate the electrons
     if_plot = True # Make the plots
@@ -55,9 +55,11 @@ def main():
     if_movie = True # Make movie
     if_ion = True # Include ion density
 
-    abs_unit = True # False # To plot in mm or not
-    rpmax = 3 # None # ylim of radiograph plot
-    rpmax_den = 0.17 # ylim of density plot
+    abs_unit = True # To plot in mm or not
+    rpmax = 3 # None # ylim of radiograph plot (if abs_unit is True, then [mm]; otherwise [c/omega_p])
+    rpmax_den = 0.2 # ylim of density plot (if abs_unit is True, then [mm]; otherwise [c/omega_p])
+    n_z_in = 300 # Number of bins in z direction for screen plot (usually 1200 for 1e7 particles)
+    n_r_in = 150 # Number of bins in r direction for screen plot (usually 1200 for 1e7 particles)
 
     if if_prop:
 
@@ -177,7 +179,7 @@ def main():
 
         # Save output data to plot later if desired
         np.savez('{}/data_{}_T_{}_prop_{}{}'.format(fldr,npart_str,T0,prop,suff),x=x,p=p,sigma_x0=sigma_x0,sigma_t0=sigma_t0,
-                 T0=T0,z_scr=z_scr,npart=npart,rqm=rqm,dt_cour=dt_cour,i_prop=i_prop,i_trans=i_trans,
+                 T0=T0,npart=npart,rqm=rqm,dt_cour=dt_cour,i_prop=i_prop,i_trans=i_trans,
                  d_focus=d_focus,beta_star=beta_star,sigma_p0=sigma_p0,M=M,rcap=rcap)
 
     if if_plot:
@@ -225,7 +227,7 @@ def main():
             else:
                 plt.figure(figsize=(7,7))
                 plt.subplot(211)
-            sigma_x = proton_pulse( c_wp, data, rmax, zmin, T0, dat_ele.run_attrs['TIME'][0], dist=dists[i], perc=0.95, n_z=1200, n_r=1200, abs_unit=abs_unit, rpmax=rpmax )
+            sigma_x = proton_pulse( c_wp, data, rmax, zmin, T0, dat_ele.run_attrs['TIME'][0], dist=dists[i], perc=0.95, n_z=n_z_in, n_r=n_r_in, abs_unit=abs_unit, rpmax=rpmax )
             xlm = plt.xlim()
             ylm = plt.ylim()
             if if_ion:
