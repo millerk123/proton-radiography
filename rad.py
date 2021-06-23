@@ -48,9 +48,14 @@ def main():
     n_threads = 16
     x_final = 50 # final distance to propagate [cm]
     n_frames = 11 # number of frames in the movie (usually 101 for 'production')
+    zp_lims = np.array([-np.inf,np.inf]) # z limits for particles to include in plots, not yet functional
+    xp_lims = np.array([-np.inf,np.inf]) # transverse position limits for particles to include in plots, not yet functional
+    box_only = True # If True, initialize particles with no momentum spread and dispersed over box;
+                    # Otherwise, use experimental particle beam
+    rp_probe_max = 1.0 # max transverse radius of probe particles (used with box_only)
 
     if_prop = True # Propagate the electrons
-    if_plot = True # Make the plots
+    if_plot = False # Make the plots
     if_par  = True # Parallelize
     if_movie = True # Make movie
     if_ion = True # Include ion density
@@ -93,7 +98,6 @@ def main():
         mode_sub = ['0-re','1-re','1-im']
         c = 3e8
         c_wp = np.load(fldr+'/c_wp.npy')[0]
-        npart_str = '{:1.0E}'.format(npart).replace('+','')
         # Prepare the fields
         dz, zmin, zmax, dr, rmax, fields, mag_e, mag_b = prep_fields( fldr, flds, mode_sub )
         ximax = zmax - zmin
@@ -108,6 +112,16 @@ def main():
             print("prop needs to be either 'x' or 'y'")
             raise
         suff = '_exp'
+
+        if box_only:
+            # ratio = (zmax-zmin+2*rmax)/(2*rmax)
+            # nr = np.round(np.sqrt(npart/ratio)).astype(int)
+            nr = np.round(np.sqrt(npart)).astype(int)
+            if (nr%2!=0):
+                nr += 1
+            nz = np.round(npart/nr).astype(int)
+            npart = nr*nz
+        npart_str = '{:1.0E}'.format(npart).replace('+','')
 
         # Convert inputs to simulation parameters
         sigma_t0_ = sigma_t0*c/c_wp
@@ -130,17 +144,25 @@ def main():
 
         # Alternatively, we can select a spread in z, just like we do in time
         # sigma_z0 = (zpmax - zpmin) / std_z
-        x[:,0] = np.random.normal( loc=(zmax - zmin)/2, scale=sigma_x0_[0], size=npart )
+        # Initialize positions
+        if box_only:
+            z_arr = np.linspace(zmin-rmax,zmax+rmax,nz)
+            r_arr = np.linspace(-rp_probe_max,rp_probe_max,nr)
+            ZARR, RARR = np.meshgrid(z_arr,r_arr)
+            x[:,0] = ZARR.ravel()
+            x[:,i_trans] = RARR.ravel()
+        else:
+            x[:,0] = np.random.normal( loc=(zmax - zmin)/2, scale=sigma_x0_[0], size=npart )
+            x[:,i_trans] = np.random.normal( scale=sigma_x0_[1], size=npart )
         # sigma_pz0 = sigma_z0 * np.sqrt(np.square(Mz)-1) / z_scr_
-
-        x[:,i_trans] = np.random.normal( scale=sigma_x0_[1], size=npart ) # Initialize transverse position
 
         # Initialize momentum; Gaussian in z and transversely, hot in propagation direction
         # print('Transverse momentum spread: {:.2f}%'.format(sigma_p0/p_temp*100))
         # print('Longitudinal momentum spread: {:.2f}%'.format(sigma_pz0/p_temp*100))
         p = np.zeros((npart,3))
-        p[:,0] = np.random.normal( scale=sigma_p0[0], size=npart )
-        p[:,i_trans] = np.random.normal( scale=sigma_p0[1], size=npart )
+        if not box_only:
+            p[:,0] = np.random.normal( scale=sigma_p0[0], size=npart )
+            p[:,i_trans] = np.random.normal( scale=sigma_p0[1], size=npart )
         p[:,i_prop] = -p_temp
 
         # We want to start all particles at x[:,i_prop] = r_max.  So we calculate how far to push particles back
@@ -150,7 +172,10 @@ def main():
         t_push = (0 - d_focus_[0]) / (p[:,i_prop] * rgamma)
         x[:,0] = x[:,0] + p[:,0] * rgamma * t_push
         # Calculate xi at this point
-        x[:,4] = x[:,0] - vd * np.random.normal( scale=sigma_t0_, size=npart ) # Initialize the spread in time when particles are at center
+        if box_only:
+            x[:,4] = x[:,0]
+        else:
+            x[:,4] = x[:,0] - vd * np.random.normal( scale=sigma_t0_, size=npart ) # Initialize the spread in time when particles are at center
         # Next calculate push time in transverse direction
         t_push = (0 - d_focus_[1]) / (p[:,i_prop] * rgamma)
         x[:,i_trans] = x[:,i_trans] + p[:,i_trans] * rgamma * t_push
@@ -159,6 +184,11 @@ def main():
         x[:,:3] = x[:,:3] + p * np.tile(np.expand_dims(rgamma*t_push,1),3)
         x[:,4] = x[:,4] - vd * t_push
         x[:,3] = np.sqrt( np.square(x[:,1]) + np.square(x[:,2]) ) # Calculate r based on initial position
+        # Save initial positions
+        x0 = np.zeros((npart,3)) # z, x_trans, xi
+        x0[:,0] = x[:,0]
+        x0[:,1] = x[:,i_trans]
+        x0[:,2] = x[:,4]
 
         # Simulate particles crossing the plasma
         nmin = 2*rmax / dt # Minimum number of time steps to traverse directly across the box
@@ -180,7 +210,7 @@ def main():
         # Save output data to plot later if desired
         np.savez('{}/data_{}_T_{}_prop_{}{}'.format(fldr,npart_str,T0,prop,suff),x=x,p=p,sigma_x0=sigma_x0,sigma_t0=sigma_t0,
                  T0=T0,npart=npart,rqm=rqm,dt_cour=dt_cour,i_prop=i_prop,i_trans=i_trans,
-                 d_focus=d_focus,beta_star=beta_star,sigma_p0=sigma_p0,M=M,rcap=rcap)
+                 d_focus=d_focus,beta_star=beta_star,sigma_p0=sigma_p0,M=M,rcap=rcap,x0=x0)
 
     if if_plot:
         # Make a movie of the final results propagating out
@@ -218,6 +248,8 @@ def main():
         sigma_x0 = data['sigma_x0']
         beta_star = data['beta_star']
         d_focus = data['d_focus']
+        p_ind = np.logical_and( np.logical_and( data['x0'][:,0] >= zp_lims[0], data['x0'][:,0] <= zp_lims[1] ),
+                                np.logical_and( data['x0'][:,1] >= xp_lims[0], data['x0'][:,1] <= xp_lims[1] ) )
 
         gc.collect()
         for i in np.arange(n_frames):
