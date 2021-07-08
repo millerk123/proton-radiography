@@ -146,7 +146,8 @@ def main():
         # sigma_z0 = (zpmax - zpmin) / std_z
         # Initialize positions
         if box_only:
-            z_arr = np.linspace(zmin-rmax,zmax+rmax,nz)
+            # Initial z for when all particles cross through the axis
+            z_arr = np.linspace(-rp_probe_max,zmax-zmin+rp_probe_max,nz)
             r_arr = np.linspace(-rp_probe_max,rp_probe_max,nr)
             ZARR, RARR = np.meshgrid(z_arr,r_arr)
             x[:,0] = ZARR.ravel()
@@ -169,16 +170,18 @@ def main():
         rgamma = 1.0 / np.sqrt( 1.0 + np.sum( np.square(p), axis=1 ) )
         # We need to push the particles to the r=0 plane, but we have to do it separately for each dimension
         # Calculate push time in longitudinal direction
-        t_push = (0 - d_focus_[0]) / (p[:,i_prop] * rgamma)
-        x[:,0] = x[:,0] + p[:,0] * rgamma * t_push
+        if not box_only:
+            t_push = (0 - d_focus_[0]) / (p[:,i_prop] * rgamma)
+            x[:,0] = x[:,0] + p[:,0] * rgamma * t_push
         # Calculate xi at this point
         if box_only:
             x[:,4] = x[:,0]
         else:
             x[:,4] = x[:,0] - vd * np.random.normal( scale=sigma_t0_, size=npart ) # Initialize the spread in time when particles are at center
         # Next calculate push time in transverse direction
-        t_push = (0 - d_focus_[1]) / (p[:,i_prop] * rgamma)
-        x[:,i_trans] = x[:,i_trans] + p[:,i_trans] * rgamma * t_push
+        if not box_only:
+            t_push = (0 - d_focus_[1]) / (p[:,i_prop] * rgamma)
+            x[:,i_trans] = x[:,i_trans] + p[:,i_trans] * rgamma * t_push
         # Next we push all particles back to rmax
         t_push = rmax / (p[:,i_prop] * rgamma)
         x[:,:3] = x[:,:3] + p * np.tile(np.expand_dims(rgamma*t_push,1),3)
@@ -210,7 +213,7 @@ def main():
         # Save output data to plot later if desired
         np.savez('{}/data_{}_T_{}_prop_{}{}'.format(fldr,npart_str,T0,prop,suff),x=x,p=p,sigma_x0=sigma_x0,sigma_t0=sigma_t0,
                  T0=T0,npart=npart,rqm=rqm,dt_cour=dt_cour,i_prop=i_prop,i_trans=i_trans,
-                 d_focus=d_focus,beta_star=beta_star,sigma_p0=sigma_p0,M=M,rcap=rcap,x0=x0)
+                 d_focus=d_focus,beta_star=beta_star,sigma_p0=sigma_p0,M=M,rmax=rmax,x0=x0)
 
     if if_plot:
         # Make a movie of the final results propagating out
