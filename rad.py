@@ -247,7 +247,7 @@ def main():
         zmax = dat_ele.axes[1].max
         # Load in saved data
         data=np.load('{}/data_{}_T_{}_prop_{}{}.npz'.format(fldr,npart_str,T0,prop,suff))
-        rmax = data['rcap']
+        rmax = data['rmax']
         sigma_x0 = data['sigma_x0']
         beta_star = data['beta_star']
         d_focus = data['d_focus']
